@@ -17,20 +17,16 @@ TICKETS = {
 CHECK_INTERVAL = 5
 HEARTBEAT_INTERVAL = 600
 
-class HealthHandler(BaseHTTPRequestHandler):
-def do_GET(self):
+def do_get(self):
 self.send_response(200)
 self.end_headers()
 self.wfile.write(b"PKP Ticket Monitor is running")
 
-```
-def log_message(self, format, *args):
-    return
-```
-
 def start_server():
+BaseHTTPRequestHandler.do_GET = do_get
+BaseHTTPRequestHandler.log_message = lambda self, format, *args: None
 port = int(os.environ.get("PORT", 10000))
-server = HTTPServer(("0.0.0.0", port), HealthHandler)
+server = HTTPServer(("0.0.0.0", port), BaseHTTPRequestHandler)
 server.serve_forever()
 
 def send_telegram(message):
@@ -50,7 +46,7 @@ timeout=10,
     else:
         print(
             f"Telegram fout: {response.status_code} {response.text}",
-            flush=True,
+            flush=True
         )
 
 except Exception as e:
@@ -81,9 +77,10 @@ last_available = {
 last_heartbeat = time.monotonic()
 
 with sync_playwright() as p:
-print("Chromium starten...", flush=True)
 
 ```
+print("Chromium starten...", flush=True)
+
 browser = p.chromium.launch(
     headless=True,
     args=[
@@ -95,13 +92,17 @@ browser = p.chromium.launch(
 page = browser.new_page()
 
 while True:
+
     try:
+
         if time.monotonic() - last_heartbeat >= HEARTBEAT_INTERVAL:
             send_heartbeat()
             last_heartbeat = time.monotonic()
 
         for ticket_name, url in TICKETS.items():
+
             try:
+
                 print(
                     f"Pukkelpop {ticket_name} controleren...",
                     flush=True
@@ -132,6 +133,7 @@ while True:
                 )
 
                 if available and not last_available[ticket_name]:
+
                     send_telegram(
                         f"🚨 {ticket_name} TICKET BESCHIKBAAR! 🚨\n\n"
                         "Er lijkt een ticket beschikbaar te zijn.\n\n"
@@ -141,12 +143,14 @@ while True:
                 last_available[ticket_name] = available
 
             except Exception as e:
+
                 print(
                     f"Fout bij {ticket_name}: {e}",
                     flush=True
                 )
 
     except Exception as e:
+
         print(
             f"Algemene fout: {e}",
             flush=True
