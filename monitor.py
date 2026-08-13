@@ -28,6 +28,7 @@ def send_telegram(message):
         data={
             "chat_id": TELEGRAM_CHAT_ID,
             "text": message,
+            "disable_web_page_preview": False,
         },
         timeout=10,
     )
@@ -39,7 +40,12 @@ def check_ticket(page, name, info):
     print(f"🔎 Controle: {name}", flush=True)
 
     try:
-        page.goto(info["url"], wait_until="domcontentloaded", timeout=30000)
+        page.goto(
+            info["url"],
+            wait_until="domcontentloaded",
+            timeout=30000,
+        )
+
         page.wait_for_timeout(2000)
 
         text = page.locator("body").inner_text().lower()
@@ -49,7 +55,6 @@ def check_ticket(page, name, info):
             return False
 
         print(f"🚨 {name}: MOGELIJK BESCHIKBAAR!", flush=True)
-
         return True
 
     except Exception as e:
@@ -62,6 +67,20 @@ def main():
     print("🟢 PKP MONITOR GESTART", flush=True)
     print("================================", flush=True)
 
+    # Telegram testen bij het opstarten
+    try:
+        send_telegram(
+            "🟢 PKP Monitor is gestart!\n\n"
+            "Ik controleer:\n"
+            "🎟️ Zaterdag zonder camping\n"
+            "🏕️ Combi + Camping Chill\n\n"
+            "Controle elke 10 seconden."
+        )
+        print("📲 Telegram verbinding OK", flush=True)
+
+    except Exception as e:
+        print(f"❌ Telegram verbinding mislukt: {e}", flush=True)
+
     already_notified = {
         "Zaterdag zonder camping": False,
         "Combi + Camping Chill": False,
@@ -69,6 +88,7 @@ def main():
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
+
         page = browser.new_page()
 
         while True:
@@ -84,17 +104,24 @@ def main():
 
                     try:
                         send_telegram(message)
-                        print(f"📲 Telegram verstuurd: {name}", flush=True)
+                        print(
+                            f"📲 Telegram verstuurd: {name}",
+                            flush=True,
+                        )
                         already_notified[name] = True
+
                     except Exception as e:
-                        print(f"⚠️ Telegram-fout: {e}", flush=True)
+                        print(
+                            f"⚠️ Telegram-fout: {e}",
+                            flush=True,
+                        )
 
                 elif not available:
                     already_notified[name] = False
 
             print(
                 f"⏱️ Volgende controle over {CHECK_INTERVAL} seconden...",
-                flush=True
+                flush=True,
             )
 
             time.sleep(CHECK_INTERVAL)
