@@ -1,4 +1,3 @@
-```python
 import os
 import time
 import requests
@@ -101,7 +100,6 @@ def main():
             loop_start = time.time()
 
             for name, info in TICKETS.items():
-
                 available = check_ticket(page, name, info)
                 current_time = time.time()
 
