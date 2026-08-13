@@ -18,10 +18,7 @@ TICKETS = {
     },
 }
 
-# Hoe vaak de website wordt gecontroleerd
 CHECK_INTERVAL = 2
-
-# Hoe vaak Telegram opnieuw meldt zolang ticket beschikbaar is
 NOTIFICATION_INTERVAL = 2
 
 
@@ -51,7 +48,6 @@ def check_ticket(page, name, info):
             timeout=30000,
         )
 
-        # Kleine wachttijd zodat de ticketinformatie kan laden
         page.wait_for_timeout(500)
 
         text = page.locator("body").inner_text().lower()
@@ -73,7 +69,6 @@ def main():
     print("🟢 PKP MONITOR GESTART", flush=True)
     print("================================", flush=True)
 
-    # Telegram testbericht bij opstarten
     try:
         send_telegram(
             "🟢 PKP Monitor is gestart!\n\n"
@@ -88,13 +83,11 @@ def main():
     except Exception as e:
         print(f"❌ Telegram verbinding mislukt: {e}", flush=True)
 
-    # Bijhouden wanneer er voor het laatst een melding is gestuurd
     last_notification = {
         "Zaterdag zonder camping": 0,
         "Combi + Camping Chill": 0,
     }
 
-    # Bijhouden of een ticket momenteel beschikbaar lijkt
     ticket_available = {
         "Zaterdag zonder camping": False,
         "Combi + Camping Chill": False,
@@ -102,7 +95,6 @@ def main():
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-
         page = browser.new_page()
 
         while True:
@@ -111,21 +103,15 @@ def main():
             for name, info in TICKETS.items():
 
                 available = check_ticket(page, name, info)
-
                 current_time = time.time()
 
                 if available:
-
-                    # Ticket is beschikbaar
                     ticket_available[name] = True
 
-                    # Meteen melden als dit de eerste detectie is
-                    # of opnieuw na 2 seconden
                     if (
                         current_time - last_notification[name]
                         >= NOTIFICATION_INTERVAL
                     ):
-
                         message = (
                             f"{info['emoji']} PKP TICKET BESCHIKBAAR!\n\n"
                             f"{name}\n\n"
@@ -149,8 +135,6 @@ def main():
                             )
 
                 else:
-
-                    # Ticket is niet meer beschikbaar
                     if ticket_available[name]:
                         print(
                             f"🔴 {name}: ticket niet meer beschikbaar",
@@ -158,13 +142,8 @@ def main():
                         )
 
                     ticket_available[name] = False
-
-                    # Zodat bij een nieuwe beschikbaarheid
-                    # meteen opnieuw gemeld wordt
                     last_notification[name] = 0
 
-            # Zorg dat de volgende controle ongeveer
-            # elke 2 seconden start
             elapsed = time.time() - loop_start
             wait_time = max(0, CHECK_INTERVAL - elapsed)
 
