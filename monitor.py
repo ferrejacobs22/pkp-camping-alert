@@ -18,7 +18,7 @@ TICKETS = {
 }
 
 CHECK_INTERVAL = 2
-NOTIFICATION_INTERVAL = 2
+SPAM_INTERVAL = 2
 
 
 def send_telegram(message):
@@ -47,7 +47,7 @@ def check_ticket(page, name, info):
             timeout=30000,
         )
 
-        page.wait_for_timeout(500)
+        page.wait_for_timeout(1000)
 
         text = page.locator("body").inner_text().lower()
 
@@ -74,86 +74,57 @@ def main():
             "Ik controleer:\n"
             "🎟️ Zaterdag zonder camping\n"
             "🏕️ Combi + Camping Chill\n\n"
-            "Controle elke 2 seconden."
+            "Controle elke 2 seconden.\n"
+            "🚨 Bij beschikbaarheid blijf ik meldingen sturen "
+            "tot het ticket weer weg is."
         )
-
         print("📲 Telegram verbinding OK", flush=True)
 
     except Exception as e:
         print(f"❌ Telegram verbinding mislukt: {e}", flush=True)
 
-    last_notification = {
-        "Zaterdag zonder camping": 0,
-        "Combi + Camping Chill": 0,
-    }
-
-    ticket_available = {
-        "Zaterdag zonder camping": False,
-        "Combi + Camping Chill": False,
-    }
-
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
+
         page = browser.new_page()
 
         while True:
-            loop_start = time.time()
-
             for name, info in TICKETS.items():
+
                 available = check_ticket(page, name, info)
-                current_time = time.time()
 
                 if available:
-                    ticket_available[name] = True
+                    message = (
+                        f"🚨🚨🚨 PKP TICKET BESCHIKBAAR! 🚨🚨🚨\n\n"
+                        f"{info['emoji']} {name}\n\n"
+                        f"👉 KOOP NU:\n"
+                        f"{info['url']}"
+                    )
 
-                    if (
-                        current_time - last_notification[name]
-                        >= NOTIFICATION_INTERVAL
-                    ):
-                        message = (
-                            f"{info['emoji']} PKP TICKET BESCHIKBAAR!\n\n"
-                            f"{name}\n\n"
-                            f"{info['url']}"
-                        )
-
-                        try:
-                            send_telegram(message)
-
-                            print(
-                                f"📲 Telegram verstuurd: {name}",
-                                flush=True,
-                            )
-
-                            last_notification[name] = current_time
-
-                        except Exception as e:
-                            print(
-                                f"⚠️ Telegram-fout: {e}",
-                                flush=True,
-                            )
-
-                else:
-                    if ticket_available[name]:
+                    try:
+                        send_telegram(message)
                         print(
-                            f"🔴 {name}: ticket niet meer beschikbaar",
+                            f"📲 Telegram melding verstuurd: {name}",
+                            flush=True,
+                        )
+                    except Exception as e:
+                        print(
+                            f"⚠️ Telegram-fout: {e}",
                             flush=True,
                         )
 
-                    ticket_available[name] = False
-                    last_notification[name] = 0
+                    time.sleep(SPAM_INTERVAL)
 
-            elapsed = time.time() - loop_start
-            wait_time = max(0, CHECK_INTERVAL - elapsed)
+                    # Opnieuw controleren voordat we verder gaan
+                    continue
 
             print(
-                f"⏱️ Volgende controle over "
-                f"{wait_time:.1f} seconden...",
+                f"⏱️ Volgende controle over {CHECK_INTERVAL} seconden...",
                 flush=True,
             )
 
-            time.sleep(wait_time)
+            time.sleep(CHECK_INTERVAL)
 
 
 if __name__ == "__main__":
     main()
-```
