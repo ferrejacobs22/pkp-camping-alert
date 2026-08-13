@@ -25,7 +25,7 @@ self.wfile.write(b"PKP Ticket Monitor is running")
 
 ```
 def log_message(self, format, *args):
-    pass
+    return
 ```
 
 def start_server():
@@ -71,6 +71,7 @@ send_telegram(
 threading.Thread(target=start_server, daemon=True).start()
 
 print("PKP Ticket Monitor gestart", flush=True)
+print("Camping A + zaterdag worden gecontroleerd", flush=True)
 
 last_available = {
 "CAMPING A": False,
@@ -80,10 +81,9 @@ last_available = {
 last_heartbeat = time.monotonic()
 
 with sync_playwright() as p:
-
-```
 print("Chromium starten...", flush=True)
 
+```
 browser = p.chromium.launch(
     headless=True,
     args=[
@@ -95,17 +95,13 @@ browser = p.chromium.launch(
 page = browser.new_page()
 
 while True:
-
     try:
-
         if time.monotonic() - last_heartbeat >= HEARTBEAT_INTERVAL:
             send_heartbeat()
             last_heartbeat = time.monotonic()
 
         for ticket_name, url in TICKETS.items():
-
             try:
-
                 print(
                     f"Pukkelpop {ticket_name} controleren...",
                     flush=True
@@ -125,15 +121,9 @@ while True:
                 except Exception:
                     pass
 
-                text = page.locator(
-                    "body"
-                ).inner_text().lower()
+                text = page.locator("body").inner_text().lower()
 
-                no_tickets = (
-                    "geen tickets beschikbaar"
-                    in text
-                )
-
+                no_tickets = "geen tickets beschikbaar" in text
                 available = not no_tickets
 
                 print(
@@ -142,7 +132,6 @@ while True:
                 )
 
                 if available and not last_available[ticket_name]:
-
                     send_telegram(
                         f"🚨 {ticket_name} TICKET BESCHIKBAAR! 🚨\n\n"
                         "Er lijkt een ticket beschikbaar te zijn.\n\n"
@@ -152,14 +141,12 @@ while True:
                 last_available[ticket_name] = available
 
             except Exception as e:
-
                 print(
                     f"Fout bij {ticket_name}: {e}",
                     flush=True
                 )
 
     except Exception as e:
-
         print(
             f"Algemene fout: {e}",
             flush=True
