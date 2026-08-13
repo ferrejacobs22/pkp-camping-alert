@@ -1,3 +1,4 @@
+```python
 import os
 import time
 import requests
@@ -17,7 +18,11 @@ TICKETS = {
     },
 }
 
-CHECK_INTERVAL = 10
+# Hoe vaak de website wordt gecontroleerd
+CHECK_INTERVAL = 2
+
+# Hoe vaak Telegram opnieuw meldt zolang ticket beschikbaar is
+NOTIFICATION_INTERVAL = 2
 
 
 def send_telegram(message):
@@ -46,7 +51,8 @@ def check_ticket(page, name, info):
             timeout=30000,
         )
 
-        page.wait_for_timeout(2000)
+        # Kleine wachttijd zodat de ticketinformatie kan laden
+        page.wait_for_timeout(500)
 
         text = page.locator("body").inner_text().lower()
 
@@ -67,21 +73,29 @@ def main():
     print("🟢 PKP MONITOR GESTART", flush=True)
     print("================================", flush=True)
 
-    # Telegram testen bij het opstarten
+    # Telegram testbericht bij opstarten
     try:
         send_telegram(
             "🟢 PKP Monitor is gestart!\n\n"
             "Ik controleer:\n"
             "🎟️ Zaterdag zonder camping\n"
             "🏕️ Combi + Camping Chill\n\n"
-            "Controle elke 10 seconden."
+            "Controle elke 2 seconden."
         )
+
         print("📲 Telegram verbinding OK", flush=True)
 
     except Exception as e:
         print(f"❌ Telegram verbinding mislukt: {e}", flush=True)
 
-    already_notified = {
+    # Bijhouden wanneer er voor het laatst een melding is gestuurd
+    last_notification = {
+        "Zaterdag zonder camping": 0,
+        "Combi + Camping Chill": 0,
+    }
+
+    # Bijhouden of een ticket momenteel beschikbaar lijkt
+    ticket_available = {
         "Zaterdag zonder camping": False,
         "Combi + Camping Chill": False,
     }
@@ -92,40 +106,77 @@ def main():
         page = browser.new_page()
 
         while True:
+            loop_start = time.time()
+
             for name, info in TICKETS.items():
+
                 available = check_ticket(page, name, info)
 
-                if available and not already_notified[name]:
-                    message = (
-                        f"{info['emoji']} PKP TICKET BESCHIKBAAR!\n\n"
-                        f"{name}\n\n"
-                        f"{info['url']}"
-                    )
+                current_time = time.time()
 
-                    try:
-                        send_telegram(message)
+                if available:
+
+                    # Ticket is beschikbaar
+                    ticket_available[name] = True
+
+                    # Meteen melden als dit de eerste detectie is
+                    # of opnieuw na 2 seconden
+                    if (
+                        current_time - last_notification[name]
+                        >= NOTIFICATION_INTERVAL
+                    ):
+
+                        message = (
+                            f"{info['emoji']} PKP TICKET BESCHIKBAAR!\n\n"
+                            f"{name}\n\n"
+                            f"{info['url']}"
+                        )
+
+                        try:
+                            send_telegram(message)
+
+                            print(
+                                f"📲 Telegram verstuurd: {name}",
+                                flush=True,
+                            )
+
+                            last_notification[name] = current_time
+
+                        except Exception as e:
+                            print(
+                                f"⚠️ Telegram-fout: {e}",
+                                flush=True,
+                            )
+
+                else:
+
+                    # Ticket is niet meer beschikbaar
+                    if ticket_available[name]:
                         print(
-                            f"📲 Telegram verstuurd: {name}",
+                            f"🔴 {name}: ticket niet meer beschikbaar",
                             flush=True,
                         )
-                        already_notified[name] = True
 
-                    except Exception as e:
-                        print(
-                            f"⚠️ Telegram-fout: {e}",
-                            flush=True,
-                        )
+                    ticket_available[name] = False
 
-                elif not available:
-                    already_notified[name] = False
+                    # Zodat bij een nieuwe beschikbaarheid
+                    # meteen opnieuw gemeld wordt
+                    last_notification[name] = 0
+
+            # Zorg dat de volgende controle ongeveer
+            # elke 2 seconden start
+            elapsed = time.time() - loop_start
+            wait_time = max(0, CHECK_INTERVAL - elapsed)
 
             print(
-                f"⏱️ Volgende controle over {CHECK_INTERVAL} seconden...",
+                f"⏱️ Volgende controle over "
+                f"{wait_time:.1f} seconden...",
                 flush=True,
             )
 
-            time.sleep(CHECK_INTERVAL)
+            time.sleep(wait_time)
 
 
 if __name__ == "__main__":
     main()
+```
