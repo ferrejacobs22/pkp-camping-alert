@@ -1,8 +1,6 @@
 import os
 import time
 import threading
-import subprocess
-import sys
 import requests
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from playwright.sync_api import sync_playwright
@@ -13,6 +11,7 @@ CHAT_ID = os.environ["CHAT_ID"]
 URL = "https://tickets.pukkelpop.be/nl/meetup/demand/?type=combi&camping=a&price=all"
 
 
+# Render moet een poort kunnen bereiken
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -34,7 +33,7 @@ threading.Thread(target=start_server, daemon=True).start()
 
 def send_alert():
     try:
-        requests.post(
+        response = requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             data={
                 "chat_id": CHAT_ID,
@@ -46,28 +45,30 @@ def send_alert():
             },
             timeout=10,
         )
-        print("🚨 Telegram melding verstuurd!")
+
+        print("Telegram status:", response.status_code)
+
+        if response.ok:
+            print("🚨 Telegram melding verstuurd!")
+        else:
+            print("⚠️ Telegram fout:", response.text)
+
     except Exception as e:
-        print("Telegram fout:", e)
+        print("⚠️ Telegram fout:", e)
 
 
 print("🌐 PKP Camping Alert gestart")
-print("📦 Playwright Chromium controleren...")
-
-subprocess.run(
-    [sys.executable, "-m", "playwright", "install", "chromium"],
-    check=True
-)
-
-print("✅ Chromium is klaar")
 
 with sync_playwright() as p:
+    print("🚀 Chromium starten...")
+
     browser = p.chromium.launch(
         headless=True,
         args=["--no-sandbox"]
     )
 
     page = browser.new_page()
+
     last_available = False
 
     while True:
