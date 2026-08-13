@@ -45,7 +45,7 @@ def send_heartbeat():
     send_telegram(
         "🟢 PKP MONITOR ACTIEF\n\n"
         f"De monitor draait nog steeds.\n"
-        f"Laatste heartbeat: {now}\n\n"
+        f"Heartbeat: {now}\n\n"
         "Controleert elke 5 seconden."
     )
 threading.Thread(target=start_server, daemon=True).start()
@@ -64,7 +64,7 @@ with sync_playwright() as p:
     page = browser.new_page()
     while True:
         try:
-            # Elke 10 minuten heartbeat
+            # Heartbeat om de 10 minuten
             if time.monotonic() - last_heartbeat >= HEARTBEAT_INTERVAL:
                 send_heartbeat()
                 last_heartbeat = time.monotonic()
@@ -74,21 +74,25 @@ with sync_playwright() as p:
                 wait_until="domcontentloaded",
                 timeout=30000,
             )
-            page.wait_for_timeout(3000)
+            # Wacht alleen tot de pagina inhoud heeft.
+            # Geen vaste 3 seconden wachttijd meer.
+            try:
+                page.wait_for_selector("body", timeout=5000)
+            except Exception:
+                pass
             text = page.locator("body").inner_text().lower()
-            available = (
-                "geen tickets beschikbaar" not in text
-                and (
-                    "camping chill" in text
-                    or "camping a" in text
-                )
-            )
+            # De belangrijkste controle:
+            # Als "geen tickets beschikbaar" op de pagina staat,
+            # is er momenteel geen ticket.
+            no_tickets = "geen tickets beschikbaar" in text
+            available = not no_tickets
             print(f"Beschikbaar: {available}", flush=True)
-            # Alleen melden wanneer de status verandert naar beschikbaar
+            # Alleen melden wanneer de status van GEEN
+            # naar WEL beschikbaar verandert.
             if available and not last_available:
                 send_telegram(
-                    "🚨 PUKKELPOP ALERT! 🚨\n\n"
-                    "Er lijkt een Camping Chill / Camping A-ticket beschikbaar te zijn!\n\n"
+                    "🚨 PUKKELPOP TICKET ALERT! 🚨\n\n"
+                    "Er lijkt een ticket beschikbaar te zijn!\n\n"
                     f"{URL}"
                 )
             last_available = available
