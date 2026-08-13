@@ -1,33 +1,17 @@
 import os
 import time
-import threading
 import requests
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from playwright.sync_api import sync_playwright
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 
-TICKETS = {
-"CAMPING A": "https://tickets.pukkelpop.be/nl/meetup/demand/?type=combi&camping=a&price=all",
-"ZATERDAG": "https://tickets.pukkelpop.be/nl/meetup/demand/?type=day2&camping=n&price=all#tickets",
-}
+CAMPING_URL = "https://tickets.pukkelpop.be/nl/meetup/demand/?type=combi&camping=a&price=all"
+SATURDAY_URL = "https://tickets.pukkelpop.be/nl/meetup/demand/?type=day2&camping=n&price=all#tickets"
 
 CHECK_INTERVAL = 5
 HEARTBEAT_INTERVAL = 600
-
-def do_get(self):
-self.send_response(200)
-self.end_headers()
-self.wfile.write(b"PKP Ticket Monitor is running")
-
-def start_server():
-BaseHTTPRequestHandler.do_GET = do_get
-BaseHTTPRequestHandler.log_message = lambda self, format, *args: None
-port = int(os.environ.get("PORT", 10000))
-server = HTTPServer(("0.0.0.0", port), BaseHTTPRequestHandler)
-server.serve_forever()
 
 def send_telegram(message):
 try:
@@ -35,58 +19,96 @@ response = requests.post(
 f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
 data={
 "chat_id": CHAT_ID,
-"text": message,
+"text": message
 },
-timeout=10,
+timeout=10
 )
 
 ```
-    if response.ok:
-        print("Telegram melding verstuurd", flush=True)
-    else:
-        print(
-            f"Telegram fout: {response.status_code} {response.text}",
-            flush=True
-        )
+    print(
+        f"Telegram: {response.status_code}",
+        flush=True
+    )
 
 except Exception as e:
-    print(f"Telegram fout: {e}", flush=True)
+    print(
+        f"Telegram fout: {e}",
+        flush=True
+    )
 ```
 
-def send_heartbeat():
-now = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-
-```
-send_telegram(
-    "🟢 PKP MONITOR ACTIEF\n\n"
-    f"Heartbeat: {now}\n"
-    "Camping A + zaterdag worden gecontroleerd."
+def check_ticket(page, name, url):
+try:
+print(
+f"🔎 {name} controleren...",
+flush=True
 )
+
+```
+    page.goto(
+        url,
+        wait_until="domcontentloaded",
+        timeout=30000
+    )
+
+    try:
+        page.wait_for_selector(
+            "body",
+            timeout=5000
+        )
+    except Exception:
+        pass
+
+    text = page.locator(
+        "body"
+    ).inner_text().lower()
+
+    available = "geen tickets beschikbaar" not in text
+
+    print(
+        f"{name}: Beschikbaar = {available}",
+        flush=True
+    )
+
+    return available
+
+except Exception as e:
+    print(
+        f"⚠️ Fout bij {name}: {e}",
+        flush=True
+    )
+
+    return False
 ```
 
-threading.Thread(target=start_server, daemon=True).start()
+print(
+"🌐 PKP Ticket Monitor gestart",
+flush=True
+)
 
-print("PKP Ticket Monitor gestart", flush=True)
-print("Camping A + zaterdag worden gecontroleerd", flush=True)
+print(
+"🏕️ Camping A + 🎟️ zaterdag worden gecontroleerd",
+flush=True
+)
 
-last_available = {
-"CAMPING A": False,
-"ZATERDAG": False,
-}
-
+last_camping = False
+last_saturday = False
 last_heartbeat = time.monotonic()
 
 with sync_playwright() as p:
 
 ```
-print("Chromium starten...", flush=True)
+print(
+    "🚀 Chromium starten...",
+    flush=True
+)
 
 browser = p.chromium.launch(
     headless=True,
     args=[
         "--no-sandbox",
-        "--disable-dev-shm-usage",
-    ],
+        "--disable-dev-shm-usage"
+    ]
 )
 
 page = browser.new_page()
@@ -95,64 +117,53 @@ while True:
 
     try:
 
+        camping_available = check_ticket(
+            page,
+            "CAMPING A",
+            CAMPING_URL
+        )
+
+        saturday_available = check_ticket(
+            page,
+            "ZATERDAG",
+            SATURDAY_URL
+        )
+
+        if camping_available and not last_camping:
+
+            send_telegram(
+                "🚨 CAMPING A TICKET BESCHIKBAAR! 🚨\n\n"
+                f"{CAMPING_URL}"
+            )
+
+        if saturday_available and not last_saturday:
+
+            send_telegram(
+                "🚨 ZATERDAG TICKET BESCHIKBAAR! 🚨\n\n"
+                f"{SATURDAY_URL}"
+            )
+
+        last_camping = camping_available
+        last_saturday = saturday_available
+
         if time.monotonic() - last_heartbeat >= HEARTBEAT_INTERVAL:
-            send_heartbeat()
+
+            now = datetime.now().strftime(
+                "%d-%m-%Y %H:%M:%S"
+            )
+
+            send_telegram(
+                "🟢 PKP MONITOR ACTIEF\n\n"
+                f"Heartbeat: {now}\n"
+                "Camping A + zaterdag worden gecontroleerd."
+            )
+
             last_heartbeat = time.monotonic()
-
-        for ticket_name, url in TICKETS.items():
-
-            try:
-
-                print(
-                    f"Pukkelpop {ticket_name} controleren...",
-                    flush=True
-                )
-
-                page.goto(
-                    url,
-                    wait_until="domcontentloaded",
-                    timeout=30000,
-                )
-
-                try:
-                    page.wait_for_selector(
-                        "body",
-                        timeout=5000
-                    )
-                except Exception:
-                    pass
-
-                text = page.locator("body").inner_text().lower()
-
-                no_tickets = "geen tickets beschikbaar" in text
-                available = not no_tickets
-
-                print(
-                    f"{ticket_name}: Beschikbaar = {available}",
-                    flush=True
-                )
-
-                if available and not last_available[ticket_name]:
-
-                    send_telegram(
-                        f"🚨 {ticket_name} TICKET BESCHIKBAAR! 🚨\n\n"
-                        "Er lijkt een ticket beschikbaar te zijn.\n\n"
-                        f"{url}"
-                    )
-
-                last_available[ticket_name] = available
-
-            except Exception as e:
-
-                print(
-                    f"Fout bij {ticket_name}: {e}",
-                    flush=True
-                )
 
     except Exception as e:
 
         print(
-            f"Algemene fout: {e}",
+            f"⚠️ Algemene fout: {e}",
             flush=True
         )
 
