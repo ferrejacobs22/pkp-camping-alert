@@ -1,297 +1,240 @@
 import os
 import time
-import threading
 import requests
-
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from playwright.sync_api import sync_playwright
 
+TELEGRAM_BOT_TOKEN = os.environ[“TELEGRAM_BOT_TOKEN”]
+TELEGRAM_CHAT_ID = os.environ[“TELEGRAM_CHAT_ID”]
 
-# =========================
-# INSTELLINGEN
-# =========================
+TICKETS = {
+“Zaterdag zonder camping”: {
+“url”: “https://tickets.pukkelpop.be/nl/meetup/demand/?type=day2&camping=n&price=all#tickets”,
+“emoji”: “🎟️”,
+},
+“Combi + Camping Chill”: {
+“url”: “https://tickets.pukkelpop.be/nl/meetup/demand/?type=combi&camping=a&price=all#tickets”,
+“emoji”: “🏕️”,
+},
+}
 
-TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+Hoe lang wachten tussen volledige controles
 
 CHECK_INTERVAL = 2
 
-TICKETS = {
-    "Zaterdag zonder camping": {
-        "url": "https://tickets.pukkelpop.be/nl/meetup/demand/?type=day2&camping=n&price=all#tickets",
-        "emoji": "🎟️",
-    },
-    "Combi + Camping Chill": {
-        "url": "https://tickets.pukkelpop.be/nl/meetup/demand/?type=combi&camping=a&price=all#tickets",
-        "emoji": "🏕️",
-    },
-}
+Om geheugen te besparen wordt Chromium regelmatig volledig opnieuw gestart
 
+BROWSER_RESTART_EVERY = 20
 
-# =========================
-# KLEINE WEBSERVER VOOR RENDER
-# =========================
+Opnieuw een Telegrammelding sturen zolang tickets beschikbaar zijn
 
-class HealthHandler(BaseHTTPRequestHandler):
-
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"PKP Monitor is running!")
-
-    def log_message(self, format, *args):
-        return
-
-
-def start_web_server():
-    port = int(os.environ.get("PORT", 10000))
-
-    server = ThreadingHTTPServer(
-        ("0.0.0.0", port),
-        HealthHandler
-    )
-
-    print(f"🌐 Webserver gestart op poort {port}", flush=True)
-
-    server.serve_forever()
-
-
-# =========================
-# TELEGRAM
-# =========================
+ALERT_REPEAT_SECONDS = 10
 
 def send_telegram(message):
-    url = (
-        f"https://api.telegram.org/"
-        f"bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    )
+url = f”https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage”
 
-    response = requests.post(
-        url,
-        data={
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": message,
-            "disable_web_page_preview": False,
-        },
-        timeout=10,
-    )
-
-    response.raise_for_status()
-
-
-# =========================
-# TICKET CONTROLE
-# =========================
+response = requests.post(
+    url,
+    data={
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "disable_web_page_preview": False,
+    },
+    timeout=10,
+)
+response.raise_for_status()
 
 def check_ticket(page, name, info):
+print(f”🔎 Controle: {name}”, flush=True)
 
-    print(f"🔎 Controle: {name}", flush=True)
-
-    try:
-
-        page.goto(
-            info["url"],
-            wait_until="domcontentloaded",
-            timeout=30000,
-        )
-
-        page.wait_for_timeout(1000)
-
-        text = page.locator("body").inner_text().lower()
-
-        if "geen tickets beschikbaar" in text:
-            print(
-                f"❌ {name}: geen tickets",
-                flush=True
-            )
+try:
+    page.goto(
+        info["url"],
+        wait_until="domcontentloaded",
+        timeout=15000,
+    )
+    # Even wachten zodat de ticketinformatie geladen kan worden
+    page.wait_for_timeout(1000)
+    text = page.locator("body").inner_text().lower()
+    unavailable_phrases = [
+        "geen tickets beschikbaar",
+        "geen tickets",
+        "uitverkocht",
+        "sold out",
+        "niet beschikbaar",
+    ]
+    for phrase in unavailable_phrases:
+        if phrase in text:
+            print(f"❌ {name}: geen tickets", flush=True)
             return False
+    print(f"🚨 {name}: MOGELIJK BESCHIKBAAR!", flush=True)
+    return True
+except Exception as e:
+    print(f"⚠️ Fout bij {name}: {e}", flush=True)
+    return None
 
-        print(
-            f"🚨 {name}: MOGELIJK BESCHIKBAAR!",
-            flush=True
-        )
+def create_browser(p):
+print(“🌐 Chromium wordt gestart…”, flush=True)
 
-        return True
+browser = p.chromium.launch(
+    headless=True,
+    args=[
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--disable-extensions",
+        "--disable-background-networking",
+        "--disable-background-timer-throttling",
+        "--disable-renderer-backgrounding",
+        "--disable-features=Translate,BackForwardCache",
+    ],
+)
+context = browser.new_context(
+    java_script_enabled=True,
+    service_workers="block",
+)
+# Blokkeer zware bestanden die we voor deze monitor niet nodig hebben
+def block_heavy_resources(route):
+    request = route.request
+    resource_type = request.resource_type
+    if resource_type in [
+        "image",
+        "media",
+        "font",
+    ]:
+        route.abort()
+    else:
+        route.continue_()
+context.route("**/*", block_heavy_resources)
+page = context.new_page()
+return browser, context, page
 
-    except Exception as e:
+def close_browser(browser, context, page):
+try:
+page.close()
+except Exception:
+pass
 
-        print(
-            f"⚠️ Fout bij {name}: {e}",
-            flush=True
-        )
-
-        return False
-
-
-# =========================
-# HOOFDPROGRAMMA
-# =========================
+try:
+    context.close()
+except Exception:
+    pass
+try:
+    browser.close()
+except Exception:
+    pass
 
 def main():
+print(”================================”, flush=True)
+print(“🟢 PKP MONITOR GESTART”, flush=True)
+print(”================================”, flush=True)
 
-    print("================================", flush=True)
-    print("🟢 PKP MONITOR GESTART", flush=True)
-    print("================================", flush=True)
-
-    # Telegram testen
-    try:
-
-        send_telegram(
-            "🟢 PKP Monitor is gestart!\n\n"
-            "Ik controleer:\n"
-            "🎟️ Zaterdag zonder camping\n"
-            "🏕️ Combi + Camping Chill\n\n"
-            "Controle elke 2 seconden."
-        )
-
-        print(
-            "📲 Telegram verbinding OK",
-            flush=True
-        )
-
-    except Exception as e:
-
-        print(
-            f"❌ Telegram verbinding mislukt: {e}",
-            flush=True
-        )
-
-
-    # Houd bij of er momenteel tickets zijn
-    ticket_status = {
-        "Zaterdag zonder camping": False,
-        "Combi + Camping Chill": False,
-    }
-
-
-    with sync_playwright() as p:
-
-        browser = p.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-            ],
-        )
-
-        page = browser.new_page()
-
-
-        while True:
-
-            for name, info in TICKETS.items():
-
-                available = check_ticket(
-                    page,
-                    name,
-                    info
-                )
-
-
-                # =========================
-                # TICKET GEVONDEN
-                # =========================
-
-                if available:
-
-                    # Alleen wanneer het ticket
-                    # net beschikbaar is geworden
-                    if not ticket_status[name]:
-
-                        message = (
-                            f"🚨 {info['emoji']} "
-                            f"PKP TICKET BESCHIKBAAR!\n\n"
-                            f"🎟️ {name}\n\n"
-                            f"👉 {info['url']}"
-                        )
-
-                        try:
-
-                            send_telegram(message)
-
-                            print(
-                                f"📲 Telegram verstuurd: {name}",
-                                flush=True
-                            )
-
-                        except Exception as e:
-
-                            print(
-                                f"⚠️ Telegram-fout: {e}",
-                                flush=True
-                            )
-
-
-                    # Ticket staat nog steeds online
-                    # -> opnieuw melding sturen
-                    else:
-
-                        message = (
-                            f"🔥 {info['emoji']} "
-                            f"PKP TICKET NOG STEEDS BESCHIKBAAR!\n\n"
-                            f"🎟️ {name}\n\n"
-                            f"👉 {info['url']}"
-                        )
-
-                        try:
-
-                            send_telegram(message)
-
-                            print(
-                                f"📲 Herhaalde melding: {name}",
-                                flush=True
-                            )
-
-                        except Exception as e:
-
-                            print(
-                                f"⚠️ Telegram-fout: {e}",
-                                flush=True
-                            )
-
-
-                    ticket_status[name] = True
-
-
-                # =========================
-                # TICKET WEG
-                # =========================
-
-                else:
-
-                    if ticket_status[name]:
-
-                        print(
-                            f"ℹ️ {name}: ticket lijkt weer weg",
-                            flush=True
-                        )
-
-                    ticket_status[name] = False
-
-
-            print(
-                f"⏱️ Volgende controle over "
-                f"{CHECK_INTERVAL} seconden...",
-                flush=True
-            )
-
-            time.sleep(CHECK_INTERVAL)
-
-
-# =========================
-# START
-# =========================
-
-if __name__ == "__main__":
-
-    # Render-webserver in aparte thread
-    web_thread = threading.Thread(
-        target=start_web_server,
-        daemon=True
+# Telegram test
+try:
+    send_telegram(
+        "🟢 PKP Monitor is gestart!\n\n"
+        "Ik controleer:\n"
+        "🎟️ Zaterdag zonder camping\n"
+        "🏕️ Combi + Camping Chill\n\n"
+        "Controle elke 2 seconden.\n"
+        "♻️ Geheugenbesparing actief."
     )
+    print("📲 Telegram verbinding OK", flush=True)
+except Exception as e:
+    print(f"❌ Telegram verbinding mislukt: {e}", flush=True)
+last_alert = {
+    "Zaterdag zonder camping": 0,
+    "Combi + Camping Chill": 0,
+}
+check_count = 0
+with sync_playwright() as p:
+    browser = None
+    context = None
+    page = None
+    try:
+        browser, context, page = create_browser(p)
+        while True:
+            # Chromium regelmatig volledig opnieuw starten
+            if check_count > 0 and check_count % BROWSER_RESTART_EVERY == 0:
+                print(
+                    "♻️ Chromium wordt opnieuw gestart om geheugen vrij te maken...",
+                    flush=True,
+                )
+                close_browser(browser, context, page)
+                time.sleep(1)
+                browser, context, page = create_browser(p)
+                print(
+                    "✅ Chromium opnieuw gestart",
+                    flush=True,
+                )
+            check_count += 1
+            print(
+                f"🔄 Controleronde #{check_count}",
+                flush=True,
+            )
+            for name, info in TICKETS.items():
+                result = check_ticket(page, name, info)
+                # Alleen bij een echte positieve controle melden
+                if result is True:
+                    now = time.time()
+                    # Niet honderden Telegramberichten per seconde sturen.
+                    # Zolang het ticket beschikbaar blijft,
+                    # komt er elke ALERT_REPEAT_SECONDS een nieuwe melding.
+                    if (
+                        now - last_alert[name]
+                        >= ALERT_REPEAT_SECONDS
+                    ):
+                        message = (
+                            f"{info['emoji']} PKP TICKET BESCHIKBAAR!\n\n"
+                            f"🔥 {name}\n\n"
+                            f"👉 NU KIJKEN:\n"
+                            f"{info['url']}\n\n"
+                            f"⚠️ Ticket kan snel verdwijnen!"
+                        )
+                        try:
+                            send_telegram(message)
+                            print(
+                                f"📲 Telegram ALERT verstuurd: {name}",
+                                flush=True,
+                            )
+                            last_alert[name] = now
+                        except Exception as e:
+                            print(
+                                f"⚠️ Telegram-fout: {e}",
+                                flush=True,
+                            )
+                # Bij geen ticket timer resetten
+                elif result is False:
+                    last_alert[name] = 0
+                # Bij een technische fout niets veranderen
+                # zodat een tijdelijke fout geen valse melding veroorzaakt
+                else:
+                    print(
+                        f"⚠️ Controle mislukt voor {name}, "
+                        f"volgende controle opnieuw proberen.",
+                        flush=True,
+                    )
+            print(
+                f"⏱️ Volgende controle over {CHECK_INTERVAL} seconden...",
+                flush=True,
+            )
+            time.sleep(CHECK_INTERVAL)
+    except Exception as e:
+        print(
+            f"💥 Onverwachte fout in monitor: {e}",
+            flush=True,
+        )
+        try:
+            send_telegram(
+                "⚠️ PKP Monitor is onverwacht gestopt.\n\n"
+                "Render probeert de service automatisch opnieuw te starten."
+            )
+        except Exception:
+            pass
+        raise
+    finally:
+        if browser is not None:
+            close_browser(browser, context, page)
 
-    web_thread.start()
-
-    # Ticketmonitor starten
-    main()
+if name == “main”:
+main()
