@@ -5,8 +5,12 @@ from playwright.sync_api import sync_playwright
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 TICKETS = {
-    "Zaterdag + Camping": {
+    "Zaterdag + Camping Chill": {
         "url": "https://tickets.pukkelpop.be/nl/meetup/demand/?type=day2&camping=a&price=all#tickets",
+        "emoji": "🎟️",
+    },
+    "Combi + Camping Chill": {
+        "url": "https://tickets.pukkelpop.be/nl/meetup/demand/?type=combi&camping=a&price=all#tickets",
         "emoji": "🏕️",
     },
 }
@@ -112,7 +116,8 @@ def main():
         send_telegram(
             "🟢 PKP Monitor is gestart!\n\n"
             "Ik controleer:\n"
-            "🏕️ Zaterdag + Camping\n\n"
+            "🎟️ Zaterdag + Camping Chill\n"
+            "🏕️ Combi + Camping Chill\n\n"
             "Controle elke 2 seconden.\n"
             "♻️ Geheugenbesparing actief."
         )
@@ -120,7 +125,8 @@ def main():
     except Exception as e:
         print(f"❌ Telegram verbinding mislukt: {e}", flush=True)
     last_alert = {
-        "Zaterdag + Camping": 0,
+        "Zaterdag + Camping Chill": 0,
+        "Combi + Camping Chill": 0,
     }
     check_count = 0
     with sync_playwright() as p:
