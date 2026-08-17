@@ -9,10 +9,6 @@ TICKETS = {
         "url": "https://tickets.pukkelpop.be/nl/meetup/demand/?type=day2&camping=n&price=all#tickets",
         "emoji": "🎟️",
     },
-    "Combi + Camping Chill": {
-        "url": "https://tickets.pukkelpop.be/nl/meetup/demand/?type=combi&camping=a&price=all#tickets",
-        "emoji": "🏕️",
-    },
 }
 # Hoe lang wachten tussen volledige controles
 CHECK_INTERVAL = 2
@@ -40,7 +36,6 @@ def check_ticket(page, name, info):
             wait_until="domcontentloaded",
             timeout=15000,
         )
-        # Even wachten zodat de ticketinformatie geladen kan worden
         page.wait_for_timeout(1000)
         text = page.locator("body").inner_text().lower()
         unavailable_phrases = [
@@ -79,7 +74,6 @@ def create_browser(p):
         java_script_enabled=True,
         service_workers="block",
     )
-    # Blokkeer zware bestanden die we voor deze monitor niet nodig hebben
     def block_heavy_resources(route):
         request = route.request
         resource_type = request.resource_type
@@ -111,13 +105,11 @@ def main():
     print("================================", flush=True)
     print("🟢 PKP MONITOR GESTART", flush=True)
     print("================================", flush=True)
-    # Telegram test
     try:
         send_telegram(
             "🟢 PKP Monitor is gestart!\n\n"
             "Ik controleer:\n"
-            "🎟️ Zaterdag zonder camping\n"
-            "🏕️ Combi + Camping Chill\n\n"
+            "🎟️ Zaterdag zonder camping\n\n"
             "Controle elke 2 seconden.\n"
             "♻️ Geheugenbesparing actief."
         )
@@ -126,7 +118,6 @@ def main():
         print(f"❌ Telegram verbinding mislukt: {e}", flush=True)
     last_alert = {
         "Zaterdag zonder camping": 0,
-        "Combi + Camping Chill": 0,
     }
     check_count = 0
     with sync_playwright() as p:
@@ -136,7 +127,6 @@ def main():
         try:
             browser, context, page = create_browser(p)
             while True:
-                # Chromium regelmatig volledig opnieuw starten
                 if (
                     check_count > 0
                     and check_count % BROWSER_RESTART_EVERY == 0
@@ -159,11 +149,8 @@ def main():
                 )
                 for name, info in TICKETS.items():
                     result = check_ticket(page, name, info)
-                    # Alleen bij een echte positieve controle melden
                     if result is True:
                         now = time.time()
-                        # Zolang het ticket beschikbaar blijft,
-                        # komt er elke ALERT_REPEAT_SECONDS een nieuwe melding.
                         if (
                             now - last_alert[name]
                             >= ALERT_REPEAT_SECONDS
@@ -187,10 +174,8 @@ def main():
                                     f"⚠️ Telegram-fout: {e}",
                                     flush=True,
                                 )
-                    # Bij geen ticket timer resetten
                     elif result is False:
                         last_alert[name] = 0
-                    # Bij een technische fout niets veranderen
                     else:
                         print(
                             f"⚠️ Controle mislukt voor {name}, "
